@@ -1,23 +1,21 @@
 # Eureka Search Engine
 
-A search engine with distributed consensus using etcd, object store persistence, and a RESTful API.
+A distributed search engine with etcd-based consensus, object store persistence, and a RESTful API.
 
 ## Features
 
 - Full-text search using Tantivy
-- Distributed consensus using etcd for leader election and cluster coordination
-- Object store persistence (supports local filesystem, AWS S3, Google Cloud Storage, Azure Blob Storage)
-- RESTful API with health checks and cluster status
-- Configurable index buffer size and search limits
-- High availability with automatic failover
-- Scatter-gather search across cluster nodes
+- Distributed consensus using etcd for leader election
+- Object store persistence (local filesystem, with AWS S3 support)
+- RESTful API with basic health checks and cluster status
+- Configurable index buffer size and search result limits
+- Leader election with automatic failover
 
 ## Prerequisites
 
 - Rust 1.75 or later
-- etcd cluster (for distributed consensus)
-- Object store (local filesystem, S3, GCS, or Azure Blob Storage)
-- Load balancer (e.g., HAProxy, Nginx, or cloud provider's load balancer)
+- etcd (single node or cluster)
+- Storage (local filesystem or S3)
 
 ## Installation
 
@@ -44,36 +42,34 @@ Create a `config.json` file with the following structure:
   "storage_path": "object_store",
   "index_prefix": "index_data",
   "max_search_results": 100,
-  "etcd_endpoints": [
-    "http://localhost:2379",
-    "http://localhost:2380",
-    "http://localhost:2381"
-  ],
+  "etcd_endpoints": ["http://localhost:2379"],
   "heartbeat_interval_secs": 5,
   "lock_ttl_secs": 30,
-  "retry_interval_secs": 1,
-  "scatter_gather_enabled": true
+  "retry_interval_secs": 1
 }
 ```
 
-Configuration options:
+### Configuration Options
 
-- `index_buffer_size`: Size of the index buffer in bytes (default: 50MB)
-- `storage_path`: Path to the object store (default: "object_store")
-- `index_prefix`: Prefix for index files in the object store (default: "index_data")
-- `max_search_results`: Maximum number of results to return (default: 100)
-- `etcd_endpoints`: List of etcd cluster endpoints (default: ["http://localhost:2379"])
-- `heartbeat_interval_secs`: Interval between heartbeats (default: 5)
-- `lock_ttl_secs`: Time-to-live for leader lock (default: 30)
-- `retry_interval_secs`: Interval between leader election retries (default: 1)
-- `scatter_gather_enabled`: Enable distributed search across cluster (default: false)
+| Option                    | Description                                | Default                   |
+| ------------------------- | ------------------------------------------ | ------------------------- |
+| `index_buffer_size`       | Size of the index buffer in bytes          | 50MB                      |
+| `storage_path`            | Path to the object store                   | "object_store"            |
+| `index_prefix`            | Prefix for index files in the object store | "index_data"              |
+| `max_search_results`      | Maximum number of results to return        | 100                       |
+| `etcd_endpoints`          | List of etcd endpoints                     | ["http://localhost:2379"] |
+| `heartbeat_interval_secs` | Interval between heartbeats                | 5                         |
+| `lock_ttl_secs`           | Time-to-live for leader lock               | 30                        |
+| `retry_interval_secs`     | Interval between leader election retries   | 1                         |
+| `auth_enabled`            | Enable API authentication                  | false                     |
+| `auth_token`              | API authentication token                   | null                      |
 
 ## Usage
 
 ### Starting the API Server
 
 ```bash
-cargo run --release -- serve --port 3000
+cargo run --release -- --config-path config.json serve --port 3000
 ```
 
 The server will:
@@ -86,41 +82,29 @@ The server will:
 ### Indexing Documents
 
 ```bash
-cargo run --release -- index
+cargo run --release -- --config-path config.json index
 ```
-
-This will:
-
-1. Create a new index
-2. Add sample documents
-3. Persist the index to the object store
 
 ### Searching Documents
 
 ```bash
-cargo run --release -- search "your query"
+cargo run --release -- --config-path config.json search "your query"
 ```
 
 ## API Endpoints
 
-- `GET /search?q=query&limit=10&force_distributed=false`: Search for documents
-  - Optional `force_distributed` parameter to force scatter-gather search
-- `GET /search/distributed?q=query&limit=10`: Force distributed search across all nodes
-- `POST /index`: Index new documents
-- `GET /health`: Health check endpoint
-- `GET /cluster/status`: Get cluster status and leadership information
+| Endpoint                   | Method | Description                    |
+| -------------------------- | ------ | ------------------------------ |
+| `/search?q=query&limit=10` | GET    | Search for documents           |
+| `/index`                   | POST   | Index new documents            |
+| `/health`                  | GET    | Health check endpoint          |
+| `/cluster/status`          | GET    | Get cluster status information |
 
-### Example API Usage
+### API Examples
 
 ```bash
-# Regular search
+# Search
 curl "http://localhost:3000/search?q=your+query&limit=10"
-
-# Search with forced distributed execution (scatter-gather)
-curl "http://localhost:3000/search?q=your+query&limit=10&force_distributed=true"
-
-# Explicitly use distributed search endpoint
-curl "http://localhost:3000/search/distributed?q=your+query&limit=10"
 
 # Index documents
 curl -X POST http://localhost:3000/index \
@@ -134,266 +118,71 @@ curl -X POST http://localhost:3000/index \
     ]
   }'
 
-# Check cluster status
-curl http://localhost:3000/cluster/status
-
 # Health check
 curl http://localhost:3000/health
+
+# Cluster status
+curl http://localhost:3000/cluster/status
 ```
 
-## Production Deployment
+## Basic Deployment
 
 ### etcd Setup
 
-1. Deploy a 3-node etcd cluster for high availability:
+For a single-node etcd instance (development):
 
-   ```bash
-   # Node 1
-   etcd --name node1 \
-     --initial-advertise-peer-urls http://10.0.1.10:2380 \
-     --listen-peer-urls http://10.0.1.10:2380 \
-     --listen-client-urls http://10.0.1.10:2379 \
-     --advertise-client-urls http://10.0.1.10:2379 \
-     --initial-cluster-token eureka-cluster \
-     --initial-cluster node1=http://10.0.1.10:2380,node2=http://10.0.1.11:2380,node3=http://10.0.1.12:2380 \
-     --initial-cluster-state new
-
-   # Node 2
-   etcd --name node2 \
-     --initial-advertise-peer-urls http://10.0.1.11:2380 \
-     --listen-peer-urls http://10.0.1.11:2380 \
-     --listen-client-urls http://10.0.1.11:2379 \
-     --advertise-client-urls http://10.0.1.11:2379 \
-     --initial-cluster-token eureka-cluster \
-     --initial-cluster node1=http://10.0.1.10:2380,node2=http://10.0.1.11:2380,node3=http://10.0.1.12:2380 \
-     --initial-cluster-state new
-
-   # Node 3
-   etcd --name node3 \
-     --initial-advertise-peer-urls http://10.0.1.12:2380 \
-     --listen-peer-urls http://10.0.1.12:2380 \
-     --listen-client-urls http://10.0.1.12:2379 \
-     --advertise-client-urls http://10.0.1.12:2379 \
-     --initial-cluster-token eureka-cluster \
-     --initial-cluster node1=http://10.0.1.10:2380,node2=http://10.0.1.11:2380,node3=http://10.0.1.12:2380 \
-     --initial-cluster-state new
-   ```
-
-2. Configure TLS for secure communication:
-
-   ```bash
-   # Generate certificates
-   etcdctl --endpoints=https://10.0.1.10:2379 \
-     --cacert=/path/to/ca.crt \
-     --cert=/path/to/etcd.crt \
-     --key=/path/to/etcd.key \
-     member list
-   ```
-
-3. Set up monitoring and backup procedures:
-
-   ```bash
-   # Backup etcd data
-   etcdctl --endpoints=https://10.0.1.10:2379 \
-     --cacert=/path/to/ca.crt \
-     --cert=/path/to/etcd.crt \
-     --key=/path/to/etcd.key \
-     snapshot save backup.db
-
-   # Restore from backup
-   etcdctl --endpoints=https://10.0.1.10:2379 \
-     --cacert=/path/to/ca.crt \
-     --cert=/path/to/etcd.crt \
-     --key=/path/to/etcd.key \
-     snapshot restore backup.db
-   ```
-
-### Object Store Configuration
-
-For production, use a cloud object store:
-
-```json
-{
-  "storage_path": "s3://your-bucket",
-  "index_prefix": "index_data",
-  "aws_region": "us-west-2",
-  "aws_access_key_id": "YOUR_ACCESS_KEY",
-  "aws_secret_access_key": "YOUR_SECRET_KEY"
-}
+```bash
+etcd --listen-client-urls http://localhost:2379 \
+     --advertise-client-urls http://localhost:2379
 ```
 
-### High Availability Setup
+For production, a multi-node etcd cluster is recommended.
 
-1. Deploy multiple instances of the search engine:
+### Basic High Availability
 
-   ```bash
-   # Node 1 (Leader)
-   cargo run --release -- serve \
-     --port 3000 \
-     --config config.json \
-     --address 10.0.1.20:3000
+1. Deploy multiple instances of the search engine pointing to the same etcd cluster
+2. Use a simple load balancer (like Nginx or HAProxy) to distribute requests
+3. Only the leader node will handle write operations (indexing)
+4. All nodes can handle read operations (searching)
 
-   # Node 2 (Follower)
-   cargo run --release -- serve \
-     --port 3000 \
-     --config config.json \
-     --address 10.0.1.21:3000
+## Future Enhancements
 
-   # Node 3 (Follower)
-   cargo run --release -- serve \
-     --port 3000 \
-     --config config.json \
-     --address 10.0.1.22:3000
-   ```
+The following features are planned for future releases:
 
-2. Configure load balancing:
+- TLS support for secure etcd communication
+- Full AWS S3, Google Cloud Storage, and Azure Blob Storage support
+- Scatter-gather search across cluster nodes
+- Metrics and monitoring integration
+- Index optimization commands
+- Enhanced security features
+- Comprehensive backup and recovery procedures
 
-   ```nginx
-   # Nginx configuration
-   upstream eureka_backend {
-       server 10.0.1.20:3000;
-       server 10.0.1.21:3000;
-       server 10.0.1.22:3000;
-   }
+## Development
 
-   server {
-       listen 80;
-       server_name search.example.com;
+### Building
 
-       location / {
-           proxy_pass http://eureka_backend;
-           proxy_set_header Host $host;
-           proxy_set_header X-Real-IP $remote_addr;
-           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-           proxy_set_header X-Forwarded-Proto $scheme;
-       }
-   }
-   ```
+```bash
+# Debug build
+cargo build
 
-3. Set up monitoring and alerting:
+# Release build
+cargo build --release
+```
 
-   ```yaml
-   # Prometheus configuration
-   scrape_configs:
-     - job_name: "eureka"
-       static_configs:
-         - targets: ["10.0.1.20:3000", "10.0.1.21:3000", "10.0.1.22:3000"]
-       metrics_path: "/metrics"
-   ```
+### Testing
 
-4. Implement proper logging and tracing:
-   ```json
-   {
-     "log_level": "info",
-     "tracing_enabled": true,
-     "tracing_endpoint": "http://jaeger:14268/api/traces"
-   }
-   ```
+```bash
+# Run all tests
+cargo test
 
-### Security Considerations
-
-1. Use TLS for API endpoints:
-
-   ```nginx
-   server {
-       listen 443 ssl;
-       server_name search.example.com;
-       ssl_certificate /path/to/cert.pem;
-       ssl_certificate_key /path/to/key.pem;
-       # ... rest of configuration
-   }
-   ```
-
-2. Implement authentication and authorization:
-
-   ```json
-   {
-     "auth_enabled": true,
-     "auth_token": "your-secure-token"
-   }
-   ```
-
-3. Secure etcd communication:
-
-   ```json
-   {
-     "etcd_endpoints": [
-       "https://10.0.1.10:2379",
-       "https://10.0.1.11:2379",
-       "https://10.0.1.12:2379"
-     ],
-     "etcd_ca_cert": "/path/to/ca.crt",
-     "etcd_cert": "/path/to/etcd.crt",
-     "etcd_key": "/path/to/etcd.key"
-   }
-   ```
-
-4. Use secure credentials management:
-
-   - Use AWS IAM roles for S3 access
-   - Use Kubernetes secrets for sensitive data
-   - Rotate credentials regularly
-
-5. Regular security updates:
-   - Keep dependencies up to date
-   - Monitor security advisories
-   - Regular penetration testing
-
-## Monitoring and Maintenance
-
-- Monitor etcd cluster health:
-
-  ```bash
-  etcdctl --endpoints=https://10.0.1.10:2379 \
-    --cacert=/path/to/ca.crt \
-    --cert=/path/to/etcd.crt \
-    --key=/path/to/etcd.key \
-    endpoint health
-  ```
-
-- Track index size and performance:
-
-  ```bash
-  # Monitor index size
-  aws s3 ls s3://your-bucket/index_data/ --recursive
-
-  # Monitor search latency
-  curl -s http://localhost:3000/metrics | grep search_latency
-  ```
-
-- Monitor API latency and error rates:
-
-  ```bash
-  # Using Prometheus
-  rate(http_requests_total[5m])
-  rate(http_requests_errors_total[5m])
-  ```
-
-- Regular index optimization:
-
-  ```bash
-  # Merge segments
-  cargo run --release -- optimize-index
-  ```
-
-- Backup and recovery procedures:
-
-  ```bash
-  # Backup index
-  aws s3 sync s3://your-bucket/index_data/ s3://backup-bucket/index_data/
-
-  # Restore index
-  aws s3 sync s3://backup-bucket/index_data/ s3://your-bucket/index_data/
-  ```
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a new Pull Request
+# Run specific tests
+cargo test search
+```
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is open source and available under the [MIT License](LICENSE).
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
