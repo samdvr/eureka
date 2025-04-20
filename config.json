@@ -1,0 +1,8 @@
+{
+  "index_buffer_size": 100000000,
+  "storage_path": "object_store",
+  "index_prefix": "prod_index",
+  "max_search_results": 50,
+  "api_port": 3000,
+  "etcd_endpoints": ["http://localhost:2379"]
+}

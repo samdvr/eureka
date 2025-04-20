@@ -1,0 +1,19 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# Object storage directory (used for development)
+/object_store/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Configuration files with potential sensitive information
+config.*.json
+
+# Log files
+*.log
